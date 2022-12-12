@@ -1,0 +1,887 @@
+---
+title: "Intro to Data Science: Final Project"
+author: "Min Ha Kim & Ruqaya Abdirahman"
+format: html
+editor: visual
+---
+
+## What national policies were Democratic and Republican Presidents oriented towards during State of the Union speeches from 1790 - 2018?
+
+Source: Weinstein, B. (2017). State of the Union. Retrieved on 17th Nov, 2022 from <https://github.com/BrianWeinstein/state-of-the-union>
+
+```{r}
+
+library('tidyverse')
+library('data.table')
+library('tidytext')
+library('randomForest')
+library('caret')
+library('nnet')
+library('topicmodels')
+library('quanteda')
+library('caret')
+library('GGally')
+
+
+url <- 'https://raw.githubusercontent.com/BrianWeinstein/state-of-the-union/master/transcripts.csv'
+
+df <- read.csv(url)
+a <- str_length(df$transcript[1:5])
+
+
+url <- 'https://gist.githubusercontent.com/namuol/2657233/raw/74135b2637e624848c163759be9cd14ae33f5153/presidents.csv'
+president <- read.csv(url) %>%
+  select(president = President, party = Party) %>%
+  bind_rows(data.frame(president = c('Donald J. Trump', 'William J. Clinton', 'George Bush', 'Gerald R. Ford', 'Martin van Buren'), 
+                       party = c('Republican', 'Democratic', 'Republican', 'Republican', 'Democratic')))
+
+tail(president, 10)
+
+
+```
+
+## SECTION 1
+
+In this section, we have divided the dataset into 5000, 8000, and 10,000 words respectively, created a bag of words, and analyzed which words were relevant to our policy-oriented categories.
+
+Our main question is which words should we include in our topic list of Security, Economy, Infrastructure, Healthcare, and Education.
+
+```{r}
+
+speech <- df %>%
+  left_join(president) %>%
+  mutate(id = 1:nrow(.)) %>%
+  mutate(transcript = substr(transcript, 1, 5000)) %>%
+  mutate(party = str_trim(party)) %>%
+  filter(party %in% c('Democratic', 'Republican')) %>%
+  select(id, president, party, transcript)
+
+head(speech)
+
+speech %>%
+  count(party)
+
+
+words <- speech %>%
+  mutate(transcript = gsub("[[:punct:]]", " ", transcript)) %>%
+  unnest_tokens(word, transcript, strip_punct=T) %>%
+  filter(!grepl('[0-9]', word)) %>%
+  anti_join(stop_words)
+
+head(words)
+words %>%
+  count(word) %>%
+  arrange(-n) %>%
+  head(10)
+
+
+bow <- words %>%
+  group_by(word) %>%
+  filter(n() > 10) %>%
+  count(id, word) %>%
+  pivot_wider(id_cols= id, names_from = word, values_from = n, values_fill=0) %>%
+  inner_join(speech %>% select(id, labels= party), by='id') %>%
+  select(-id) %>%
+  mutate(labels = factor(labels)) %>%
+  select(-'break')
+
+words %>%
+  count(party)
+
+
+```
+
+```{r}
+
+speech2 <- df %>%
+  left_join(president) %>%
+  mutate(id = 1:nrow(.)) %>%
+  mutate(transcript = substr(transcript, 1, 8000)) %>%
+  mutate(party = str_trim(party)) %>%
+  filter(party %in% c('Democratic', 'Republican')) %>%
+  select(id, president, party, transcript)
+
+head(speech2)
+
+speech2 %>%
+  count(party)
+
+
+words2 <- speech2 %>%
+  mutate(transcript = gsub("[[:punct:]]", " ", transcript)) %>%
+  unnest_tokens(word, transcript, strip_punct=T) %>%
+  filter(!grepl('[0-9]', word)) %>%
+  anti_join(stop_words)
+
+head(words2)
+words2 %>%
+  count(word) %>%
+  arrange(-n) %>%
+  head(10)
+
+
+bow2 <- words2 %>%
+  group_by(word) %>%
+  filter(n() > 10) %>%
+  count(id, word) %>%
+  pivot_wider(id_cols= id, names_from = word, values_from = n, values_fill=0) %>%
+  inner_join(speech %>% select(id, labels= party), by='id') %>%
+  select(-id) %>%
+  mutate(labels = factor(labels)) %>%
+  select(-'break')
+
+words2 %>%
+  count(party)
+
+```
+
+```{r}
+
+speech3 <- df %>%
+  left_join(president) %>%
+  mutate(id = 1:nrow(.)) %>%
+  mutate(transcript = substr(transcript, 1, 10000)) %>%
+  mutate(party = str_trim(party)) %>%
+  filter(party %in% c('Democratic', 'Republican')) %>%
+  select(id, president, party, transcript)
+
+head(speech3)
+
+speech3 %>%
+  count(party)
+
+
+words3 <- speech3 %>%
+  mutate(transcript = gsub("[[:punct:]]", " ", transcript)) %>%
+  unnest_tokens(word, transcript, strip_punct=T) %>%
+  filter(!grepl('[0-9]', word)) %>%
+  anti_join(stop_words)
+
+head(words3)
+words3 %>%
+  count(word) %>%
+  arrange(-n) %>%
+  head(10)
+
+
+bow3 <- words3 %>%
+  group_by(word) %>%
+  filter(n() > 10) %>%
+  count(id, word) %>%
+  pivot_wider(id_cols= id, names_from = word, values_from = n, values_fill=0) %>%
+  inner_join(speech %>% select(id, labels= party), by='id') %>%
+  select(-id) %>%
+  mutate(labels = factor(labels)) %>%
+  select(-'break')
+
+words3 %>%
+  count(party)
+
+
+```
+
+## SECTION 2
+
+As the set number of words changes, the frequency of the words used also changes. In this project, frequency illustrates the importance of that word in policy-making. From there, we dissect what words are relevant and drop the ones that are not.
+
+```{r}
+
+words %>%
+  count(party, word) %>%
+  group_by(party) %>%
+  top_n(30, n) %>%
+  ggplot(aes(x=n, y=reorder(word, n), fill=party)) + 
+  facet_grid(~party, scales = 'free_y') + geom_col() +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Word') + 
+  ggtitle('Top 30 Words by Party_1') + 
+  theme(plot.title = element_text(hjust=.5))
+
+
+words2 %>%
+  count(party, word) %>%
+  group_by(party) %>%
+  top_n(30, n) %>%
+  ggplot(aes(x=n, y=reorder(word, n), fill=party)) + 
+  facet_grid(~party, scales = 'free_y') + geom_col() +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Word') + 
+  ggtitle('Top 30 Words by Party_2') + 
+  theme(plot.title = element_text(hjust=.5))
+
+
+words3 %>%
+  count(party, word) %>%
+  group_by(party) %>%
+  top_n(30, n) %>%
+  ggplot(aes(x=n, y=reorder(word, n), fill=party)) + 
+  facet_grid(~party, scales = 'free_y') + geom_col() +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Word') + 
+  ggtitle('Top 30 Words by Party_3') + 
+  theme(plot.title = element_text(hjust=.5))
+
+```
+
+## SECTION 3
+
+**Unsupervised and Supervised Machine Learning**
+
+In this section, we split the data into training and testing. This is important for our next section on random forest. Moreover, this section shows that there are three training and testing models were divided by the initial categories outlined in Section 1: (5000, 8000, 10000 words). Each model has a different number of variables:
+
+Train1 = 131 observations, 1231 variables
+
+Test1 = 55 observations, 1231 variables
+
+Train2 =131 observations, 1901 variables
+
+Test2 = 55 observations, 1901 variables
+
+Train3 =131 observations, 2298 variables
+
+Test3 = 55 observations, 2298 variables
+
+```{r}
+
+set.seed(123)
+indx1 <- sample(nrow(bow), 0.7*nrow(bow))
+train1 <- bow[indx1, ]
+test1 <- bow[-indx1, ]
+
+
+indx2 <- sample(nrow(bow2), 0.7*nrow(bow2))
+train2 <- bow2[indx2, ]
+test2 <- bow2[-indx2, ]
+
+
+indx3 <- sample(nrow(bow3), 0.7*nrow(bow3))
+train3 <- bow3[indx3, ]
+test3 <- bow3[-indx3, ]
+
+
+```
+
+Random forest: illustrates approximately 60% accuracy, using 30 no of trees and variables
+
+```{r}
+
+set.seed(24)
+library(randomForest)
+rf <- randomForest(labels ~., data = train1, ntree=30, mtry=30)
+y_pred <- predict(rf, newdata = test1)
+confusionMatrix(y_pred, test1$labels)
+
+
+rf$importance %>%
+  as.data.frame() %>%
+  mutate(feature = row.names(.)) %>%
+  arrange(-MeanDecreaseGini) %>%
+  head(10) %>%
+  ggplot(aes(y=reorder(feature,MeanDecreaseGini) , x=MeanDecreaseGini)) + geom_col() +
+  xlab('Importance') + ylab('Feature')
+
+
+```
+
+After we increased the no. of trees and no. of variables to 50, our prediction decreased to approximately 49 percent.
+
+The graphs illustrates that monetary and economic-relevant features were the most important. This tells us that economic policies were most likely the focus of the Presidents.
+
+```{r}
+
+rf <- randomForest(labels ~., data = train1, ntree=50, mtry=50)
+y_pred <- predict(rf, newdata = test1)
+confusionMatrix(y_pred, test1$labels)
+
+
+rf$importance %>%
+  as.data.frame() %>%
+  mutate(feature = row.names(.)) %>%
+  arrange(-MeanDecreaseGini) %>%
+  head(10) %>%
+  ggplot(aes(y=reorder(feature,MeanDecreaseGini) , x=MeanDecreaseGini)) + geom_col() +
+  xlab('Importance') + ylab('Feature')
+```
+
+After we increased the no. of trees and no. of variables to 100, our prediction increases to approximately 65 percent.
+
+Similar to the previous model, the graphs illustrates that monetary and economic-relevant features were the most important. This tells us that economic policies were most likely the focus of the Presidents.
+
+```{r}
+
+rf <- randomForest(labels ~., data = train1, ntree=100, mtry=100)
+y_pred <- predict(rf, newdata = test1)
+confusionMatrix(y_pred, test1$labels)
+
+
+rf$importance %>%
+  as.data.frame() %>%
+  mutate(feature = row.names(.)) %>%
+  arrange(-MeanDecreaseGini) %>%
+  head(10) %>%
+  ggplot(aes(y=reorder(feature,MeanDecreaseGini) , x=MeanDecreaseGini)) + geom_col() +
+  xlab('Importance') + ylab('Feature')
+```
+
+This section illustrates Neural Network analysis, however it did not work because our dataset was not appropriate for this type of unsupervised Machine Learning.
+
+```{r}
+
+#X_train <- train1 %>% select(-labels)
+#y_train <- train1$labels
+
+#X_test <- test1 %>% select(-labels)
+#y_test <- test1$labels
+
+#model <- nnet(X_train, y_train, size=2)
+
+
+```
+
+We have applied K-means to find the optimal number of clusters.
+
+```{r}
+
+k_values <- 1:10
+total_within <- c()
+for (k in k_values){
+  cl <- kmeans(bow %>% select(-labels), centers = k)
+  total_within <- c(total_within, cl$tot.withinss)
+}
+
+
+k_values <- 1:10
+total_within2 <- c()
+for (k in k_values){
+  cl2 <- kmeans(bow2 %>% select(-labels), centers = k)
+  total_within2 <- c(total_within2, cl2$tot.withinss)
+}
+
+
+k_values <- 1:10
+total_within3 <- c()
+for (k in k_values){
+  cl3 <- kmeans(bow3 %>% select(-labels), centers = k)
+  total_within3 <- c(total_within3, cl3$tot.withinss)
+}
+```
+
+We have conducted a total-withiness test, which shows that the reduction in total-withiness is significant in the first two clusters.
+
+We have divided this section into 3 groups with each cluster (bow = 5000 words, bow2 = 8000 words, bow3 = 10000 words)
+
+```{r}
+
+
+data.frame(k = k_values, total = total_within) %>%
+  ggplot(aes(x=k, y=total)) + geom_line() + geom_point() +
+  xlab('Number of Clusters') + ylab('Total Within-ness') +
+  scale_x_continuous(breaks = 1:10)
+
+cl <- kmeans(bow %>% select(-labels), centers = 2)
+table(cl$cluster, bow$labels)
+
+
+# bow2 = 8000
+
+data.frame(k = k_values, total = total_within) %>%
+  ggplot(aes(x=k, y=total)) + geom_line() + geom_point() +
+  xlab('Number of Clusters') + ylab('Total Within-ness') +
+  scale_x_continuous(breaks = 1:10)
+
+cl4 <- kmeans(bow2 %>% select(-labels), centers = 2)
+table(cl4$cluster, bow2$labels)
+
+
+# bow3 = 10000
+
+data.frame(k = k_values, total = total_within) %>%
+  ggplot(aes(x=k, y=total)) + geom_line() + geom_point() +
+  xlab('Number of Clusters') + ylab('Total Within-ness') +
+  scale_x_continuous(breaks = 1:10)
+
+cl5 <- kmeans(bow3 %>% select(-labels), centers = 2)
+table(cl5$cluster, bow3$labels)
+
+```
+
+In this section, we have repeated the same process for the total-withinness models in the previous section, however, we have used 3 clusters to see if there is a difference.
+
+```{r}
+
+data.frame(k = k_values, total = total_within) %>%
+  ggplot(aes(x=k, y=total)) + geom_line() + geom_point() +
+  xlab('Number of Clusters') + ylab('Total Within-ness') +
+  scale_x_continuous(breaks = 1:10)
+
+cl6 <- kmeans(bow %>% select(-labels), centers = 3)
+table(cl6$cluster, bow$labels)
+
+
+
+data.frame(k = k_values, total = total_within) %>%
+  ggplot(aes(x=k, y=total)) + geom_line() + geom_point() +
+  xlab('Number of Clusters') + ylab('Total Within-ness') +
+  scale_x_continuous(breaks = 1:10)
+
+cl7 <- kmeans(bow2 %>% select(-labels), centers = 3)
+table(cl7$cluster, bow2$labels)
+
+
+
+data.frame(k = k_values, total = total_within) %>%
+  ggplot(aes(x=k, y=total)) + geom_line() + geom_point() +
+  xlab('Number of Clusters') + ylab('Total Within-ness') +
+  scale_x_continuous(breaks = 1:10)
+
+cl8 <- kmeans(bow3 %>% select(-labels), centers = 3)
+table(cl8$cluster, bow3$labels)
+
+
+```
+
+In this section, we have conducted PCA models for feature reduction. This section shows the most words used by both Democratic and Republican Presidents. Although most words are used by both parties, by analyzing PCA models 2 and 3, we see that some words are used by one party of the other.
+
+This section does not show which words each party uses and which words are clustered on specific areas of the model (which indicates higher prevalence), but gives us a visualization of the model.
+
+```{r}
+
+pc <- prcomp(bow %>% select(-labels), center = T, scale. = T)
+
+
+data.frame(pc1 = pc$x[,1], pc2 = pc$x[,2], label=bow$labels) %>%
+  ggplot(aes(x=pc1, y=pc2, color=label)) + geom_point() +
+  scale_color_manual(values=c('skyblue', 'salmon'))
+
+
+pc2 <- prcomp(bow2 %>% select(-labels), center = T, scale. = T)
+
+data.frame(pc1 = pc2$x[,1], pc2 = pc2$x[,2], label=bow$labels) %>%
+  ggplot(aes(x=pc1, y=pc2, color=label)) + geom_point() +
+  scale_color_manual(values=c('skyblue', 'salmon'))
+
+
+pc3 <- prcomp(bow3 %>% select(-labels), center = T, scale. = T)
+
+data.frame(pc1 = pc3$x[,1], pc2 = pc3$x[,2], label=bow$labels) %>%
+  ggplot(aes(x=pc1, y=pc2, color=label)) + geom_point() +
+  scale_color_manual(values=c('skyblue', 'salmon'))
+
+
+```
+
+This section uses Linear Discriminant Analysis (LDA) which is used for topic modeling. Our models show the top 10 words used in 5 topics.
+
+In the model, we see that economic and security policies (with words such as debt, labor, united, industrial, war,and peace) are the focus of US Presidents during their State of Union address, and this will help us with the list of topic words for each category.
+
+```{r}
+
+mylda <- LDA(bow %>% select(-labels), k = 5, control=list(seed=123)) %>%
+  tidy(matrix = 'beta')
+
+mylda %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>%
+  arrange(topic, -beta) %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill=factor(topic))) + 
+  geom_col(show.legend = F) + facet_wrap(~topic, scales='free') +
+  scale_y_reordered() +
+  xlab('') + ylab('')
+
+
+mylda %>%
+  mutate(topic = paste0('topic', topic)) %>%
+  pivot_wider(names_from = topic, values_from = beta) %>%
+  mutate(log_ratio = log2(topic2/topic1)) %>%
+  arrange(-abs(log_ratio)) %>%
+  head(20) %>%
+  ggplot(aes(y=reorder(term, log_ratio), x=log_ratio)) + geom_col()
+
+
+```
+
+This section uses Lasso model as an alternative to random forest. This model minimizes the prediction error and illustrates similar results to the random forest model. The accuracy ranges from approximately 64 to 65 percent.
+
+```{r}
+library(tidymodels)
+library(textrecipes)
+library(vip)
+set.seed(43)
+
+eos_split <- initial_split(speech2, strata = party)
+eos_train <- training(eos_split)
+eos_test <- testing(eos_split)
+
+eos_rec <-
+  recipe(party ~ transcript, data = eos_train) %>%
+  step_tokenize(transcript) %>%
+  step_stopwords(transcript) %>%
+  step_stem(transcript) %>%
+  step_tokenfilter(transcript, max_tokens = 1000) %>%
+  step_tfidf(transcript)
+
+lasso_mod <-
+  logistic_reg(penalty = tune(), mixture = 1) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+
+lasso_wf <- workflow() %>%
+  add_recipe(eos_rec) %>%
+  add_model(lasso_mod)
+
+set.seed(34)
+eos_folds <- vfold_cv(eos_train, strata = party)
+
+lasso_grid <- grid_regular(penalty(range = c(-5, 0)), levels = 10)
+
+lasso_cv <- tune_grid(
+  lasso_wf,
+  eos_folds,
+  grid = lasso_grid)
+
+lasso_cv %>%
+  collect_metrics() %>%
+  filter(.metric == 'accuracy')
+
+autoplot(lasso_cv)
+
+lasso_cv %>%
+  select_best("accuracy")
+
+
+```
+
+## SECTION 4
+
+**Analyzing the 5 policy categories**
+
+-   Healthcare
+
+-   Economy
+
+-   Infrastructure
+
+-   Education
+
+-   Security
+
+This section illustrates which policies that the Presidents frequently spoke about. The models are categorized by policies and Presidents. Economy, Security, and Education are the three main categories from this mode. These categories will be further analyzed in the next models, whereby we will add more topic words to see the impact .
+
+```{r}
+
+
+topic_words <- list(healthcare = c('healthcare', 'medical', 'insurance', 'cancer', 
+                                   'covid', 'diabetes', 'mental health'),
+                    economy = c('economy','economic','tax','economic policy', 
+                               'union', 'tax cut', 'deficits' ),
+                    infrastructure = c('infrastructure', 'road', 'railroad', 
+                                       'energy infrastructure', 'transport'),
+                    education = c('education', 'school', 'highschool', 'degree', 
+                                  'teaching', 'learning', 'bullying', 'trauma'), 
+                    security = c('security', 'illicit drugs', 'traffickers', 'drugs',
+                                 'terrorism', 'guns', 'firearms', 'shootings'))
+
+
+
+topic_vals <- c()
+words_vals <- c()
+for (top in names(topic_words)){
+  topic_vals <- c(topic_vals, rep(top, length(topic_words[[top]])))
+  words_vals <- c(words_vals, topic_words[[top]])
+}
+
+topic_df <- data.frame(word = words_vals, topic=topic_vals)
+topic_df
+
+
+words %>%
+  inner_join(topic_df) %>%
+  count(topic, party) %>%
+  ggplot(aes(x=n, y=reorder(topic, n), fill=party)) + geom_col(position='dodge') +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Topic') + 
+  ggtitle('Words by Party') + 
+  theme(plot.title = element_text(hjust=.5))
+
+
+words %>%
+  inner_join(topic_df) %>%
+  count(topic, president) %>%
+  pivot_wider(id_cols=president, values_from = n, names_from = topic, 
+              values_fill=0)
+
+```
+
+Republicans are slightly higher than Democrats, which means that economic policies are more frequently highlighted by Republicans. The model will be further analyzed to see if this is true when more words are added. However, it is also important to highlight that corporate tax cuts are economic policies that Republican Presidents are more oriented towards.
+
+```{r}
+
+topic_words2 <- list(economy = c('economy','economic', 'tax', 'economic policy',
+                                'union', 'deficits','lower taxes', 
+                                 'immigration restriction','conservatism', 
+                                 'deregulation', 'capitalism', 
+                                 'corporate tax cuts'))
+
+topic_vals2 <- c()
+words_vals2 <- c()
+for (top in names(topic_words)){
+  topic_vals2 <- c(topic_vals2, rep(top, length(topic_words2[[top]])))
+  words_vals2 <- c(words_vals2, topic_words2[[top]])
+}
+
+topic_df2 <- data.frame(word = words_vals2, topic=topic_vals2)
+topic_df2
+
+words %>%
+  inner_join(topic_df2) %>%
+  count(topic, party) %>%
+  ggplot(aes(x=n, y=reorder(topic, n), fill=party)) + 
+  geom_col(position='dodge') +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Topic') + 
+  ggtitle('Words by Party') + 
+  theme(plot.title = element_text(hjust=.5))
+
+words %>%
+  inner_join(topic_df2) %>%
+  count(topic, president) %>%
+  pivot_wider(id_cols=president, values_from = n, names_from = topic, 
+              values_fill=0)
+
+
+```
+
+There is a slight increase in both Democratic and Republican Party after the inclusion of the word 'industrial'
+
+Presidents that focused on these topics were Obama, Calvin Coolidge, Eisenhower, Ford, George W.Bush, Nixon, Reagan, Truman, and Carter.\
+
+It is also important to note that earlier Presidents have used the term 'industrial' in their speeches, implying that this was the focus on economic growth during the early 1900s. These Presidents include Roosevelt, Hoover, Truman, and Eisenhower.
+
+```{r}
+
+topic_words3 <- list(economy = c('economy','economic', 'tax', 'economic policy',
+                                 'union', 'deficits', 'lower taxes', 
+                                 'immigration restriction','conservatism', 
+                                 'deregulation', 'capitalism',
+                                 'corporate tax cuts', 'industrial'))
+
+topic_vals3 <- c()
+words_vals3 <- c()
+for (top in names(topic_words)){
+  topic_vals3 <- c(topic_vals3, rep(top, length(topic_words3[[top]])))
+  words_vals3 <- c(words_vals3, topic_words3[[top]])
+}
+
+topic_df3 <- data.frame(word = words_vals3, topic=topic_vals3)
+topic_df3
+
+words %>%
+  inner_join(topic_df3) %>%
+  count(topic, party) %>%
+  ggplot(aes(x=n, y=reorder(topic, n), fill=party)) + 
+  geom_col(position='dodge') +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Topic') + 
+  ggtitle('Words by Party') + 
+  theme(plot.title = element_text(hjust=.5))
+
+words %>%
+  inner_join(topic_df3) %>%
+  count(topic, president) %>%
+  pivot_wider(id_cols=president, values_from = n, names_from = topic, 
+              values_fill=0)
+
+
+```
+
+There is a slight decrease in both Democratic and Republican Party after adding 'port', compared to the previous model. This also shows that both parties have addressed sea ports in their speeches.
+
+Presidents Obama, Carter, and George W. Bush are some of the presidents who have included this in their speeches.
+
+```{r}
+
+topic_words4 <- list(economy = c('economy','economic', 'tax', 'economic policy',
+                                'union', 'deficits','lower taxes',
+                                 'immigration restriction','conservatism', 
+                                 'deregulation', 'capitalism',
+                                 'corporate tax cuts', 'ports'))
+
+topic_vals4 <- c()
+words_vals4 <- c()
+for (top in names(topic_words)){
+  topic_vals4 <- c(topic_vals4, rep(top, length(topic_words4[[top]])))
+  words_vals4 <- c(words_vals4, topic_words4[[top]])
+}
+
+topic_df4 <- data.frame(word = words_vals4, topic=topic_vals4)
+topic_df4
+
+words %>%
+  inner_join(topic_df4) %>%
+  count(topic, party) %>%
+  ggplot(aes(x=n, y=reorder(topic, n), fill=party)) + 
+  geom_col(position='dodge') +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Topic') + 
+  ggtitle('Words by Party') + 
+  theme(plot.title = element_text(hjust=.5))
+
+words %>%
+  inner_join(topic_df4) %>%
+  count(topic, president) %>%
+  pivot_wider(id_cols=president, values_from = n, names_from = topic, 
+              values_fill=0)
+
+```
+
+Overall, Democrats spoke more about security policies, than Republicans. When the word 'border' was included in our topic model, we do not see substantial difference from the first model.
+
+```{r}
+
+topic_words5 <- list(security = c('security', 'illicit drugs', 'traffickers', 
+                                  'drugs', 'terrorism', 'guns', 'firearms', 
+                                  'shootings' , 'border'))
+
+
+topic_vals5 <- c()
+words_vals5 <- c()
+for (top in names(topic_words)){
+  topic_vals5 <- c(topic_vals5, rep(top, length(topic_words5[[top]])))
+  words_vals5 <- c(words_vals5, topic_words5[[top]])
+}
+
+topic_df5 <- data.frame(word = words_vals5, topic=topic_vals5)
+topic_df5
+
+words %>%
+  inner_join(topic_df5) %>%
+  count(topic, party) %>%
+  ggplot(aes(x=n, y=reorder(topic, n), fill=party)) + 
+  geom_col(position='dodge') +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Topic') + 
+  ggtitle('Words by Party') + 
+  theme(plot.title = element_text(hjust=.5))
+
+words %>%
+  inner_join(topic_df5) %>%
+  count(topic, president) %>%
+  pivot_wider(id_cols=president, values_from = n, names_from = topic, 
+              values_fill=0)
+
+
+```
+
+Similar to the previous model, when the word 'cyber security' was included in our topic model, we did not see any substantial difference from the previous model. This suggests that cyber security was not a policy focus for any of the US Presidents during their State of Union Address.
+
+```{r}
+
+topic_words6 <- list(security = c('security', 'illicit drugs', 'traffickers', 
+                                  'drugs', 'terrorism', 'guns', 'firearms', 
+                                  'shootings' , 'cyber security'))
+
+topic_vals6 <- c()
+words_vals6 <- c()
+for (top in names(topic_words)){
+  topic_vals6 <- c(topic_vals6, rep(top, length(topic_words6[[top]])))
+  words_vals6 <- c(words_vals6, topic_words6[[top]])
+}
+
+topic_df6 <- data.frame(word = words_vals6, topic=topic_vals6)
+topic_df6
+
+words %>%
+  inner_join(topic_df6) %>%
+  count(topic, party) %>%
+  ggplot(aes(x=n, y=reorder(topic, n), fill=party)) + 
+  geom_col(position='dodge') +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Topic') + 
+  ggtitle('Words by Party') + 
+  theme(plot.title = element_text(hjust=.5))
+
+words %>%
+  inner_join(topic_df6) %>%
+  count(topic, president) %>%
+  pivot_wider(id_cols=president, values_from = n, names_from = topic, 
+              values_fill=0)
+
+
+```
+
+This model, similar to the previous two shows that including or replacing words does not make a change to the graphs and output.
+
+```{r}
+
+topic_words7 <- list(security = c('security', 'illicit drugs', 'traffickers', 
+                                  'drugs', 'terrorism', 'guns', 'firearms', 
+                                  'mass shootings' ))
+
+topic_vals7 <- c()
+words_vals7 <- c()
+for (top in names(topic_words)){
+  topic_vals7 <- c(topic_vals7, rep(top, length(topic_words7[[top]])))
+  words_vals7 <- c(words_vals7, topic_words7[[top]])
+}
+
+topic_df7 <- data.frame(word = words_vals7, topic=topic_vals7)
+topic_df7
+
+words %>%
+  inner_join(topic_df7) %>%
+  count(topic, party) %>%
+  ggplot(aes(x=n, y=reorder(topic, n), fill=party)) + 
+  geom_col(position='dodge') +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Topic') + 
+  ggtitle('Words by Party') + 
+  theme(plot.title = element_text(hjust=.5))
+
+words %>%
+  inner_join(topic_df7) %>%
+  count(topic, president) %>%
+  pivot_wider(id_cols=president, values_from = n, names_from = topic, 
+              values_fill=0)
+
+
+```
+
+This model was the most surprising to me because my expectation was that Democrats were more focused on addressing the need for educational policies, school safety, or revised educational policies. The models below show that Republicans took the lead on this with approximately 62 counts. When we compare this model to the previous one, we see that Democratic Presidents were more focused on addressing issues of mass shootings rather than school shootings.
+
+```{r}
+
+topic_words8 <- list(education = c('education', 'school', 'highschool', 'elementary', 
+                                   'degree', 'teaching', 'learning', 'bullying', 
+                                   'trauma', 'school shootings'))
+                  
+topic_vals8 <- c()
+words_vals8 <- c()
+for (top in names(topic_words)){
+  topic_vals8 <- c(topic_vals8, rep(top, length(topic_words8[[top]])))
+  words_vals8 <- c(words_vals8, topic_words8[[top]])
+}
+
+topic_df8 <- data.frame(word = words_vals8, topic=topic_vals8)
+topic_df8
+
+words %>%
+  inner_join(topic_df8) %>%
+  count(topic, party) %>%
+  ggplot(aes(x=n, y=reorder(topic, n), fill=party)) + 
+  geom_col(position='dodge') +
+  scale_fill_manual(values=c('skyblue', 'salmon')) +
+  xlab('Count') + ylab('Topic') + 
+  ggtitle('Words by Party') + 
+  theme(plot.title = element_text(hjust=.5))
+
+words %>%
+  inner_join(topic_df8) %>%
+  count(topic, president) %>%
+  pivot_wider(id_cols=president, values_from = n, names_from = topic, 
+              values_fill=0)
+
+
+```
+
+After replacing the word 'safety' with 'school shootings', we see that Democratic Presidents have a higher count than in the previous model. This shows that school safety is more important and since safety also covers prevention of school shootings, this implies that the terminology differs but the objectives are the same.
